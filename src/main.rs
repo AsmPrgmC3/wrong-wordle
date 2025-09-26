@@ -1067,6 +1067,7 @@ impl ZeroState {
 struct YellowState {
     word: Word,
     gray_mask: u32,
+    full_gray_mask: u32,
     yellow_masks: [u32; 5],
     yellow_counts: [i8; 26],
     guesses: GuessVec,
@@ -1077,6 +1078,7 @@ impl YellowState {
         Self {
             word,
             gray_mask: 0,
+            full_gray_mask: 0,
             yellow_masks: [0; 5],
             yellow_counts: [0; 26],
             guesses: Default::default(),
@@ -1084,6 +1086,8 @@ impl YellowState {
     }
 
     fn apply(&mut self, guess: Word) {
+        self.full_gray_mask |= guess.mask & !self.word.mask;
+
         let mut answer_letters = self.word.letters;
         let mut guess_letters = guess.letters;
 
@@ -1140,6 +1144,10 @@ impl YellowState {
     }
 
     fn valid_guess(&self, guess: Word) -> bool {
+        if (guess.mask & self.full_gray_mask) != 0 {
+            return false;
+        }
+
         let mut answer_letters = self.word.letters;
         let mut yellow_counts = self.yellow_counts;
 
@@ -1170,6 +1178,7 @@ impl YellowState {
 struct State {
     word: Word,
     gray_mask: u32,
+    full_gray_mask: u32,
     green_index_mask: u8,
     yellow_masks: [u32; 5],
     yellow_counts: [i8; 26],
@@ -1181,6 +1190,7 @@ impl State {
         Self {
             word,
             gray_mask: 0,
+            full_gray_mask: 0,
             green_index_mask: 0,
             yellow_masks: [0; 5],
             yellow_counts: [0; 26],
@@ -1189,6 +1199,8 @@ impl State {
     }
 
     fn apply(&mut self, guess: Word) {
+        self.full_gray_mask |= guess.mask & !self.word.mask;
+
         let mut answer_letters = self.word.letters;
         let mut guess_letters = guess.letters;
 
@@ -1276,6 +1288,10 @@ impl State {
     }
 
     fn valid_guess(&self, guess: Word) -> bool {
+        if (guess.mask & self.full_gray_mask) != 0 {
+            return false;
+        }
+
         let mut answer_letters = self.word.letters;
         let mut guess_letters = guess.letters;
 
