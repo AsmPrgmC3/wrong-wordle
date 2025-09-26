@@ -1,3 +1,4 @@
+use mimalloc::MiMalloc;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter, Write};
 use std::fs;
@@ -7,7 +8,6 @@ use std::iter::FusedIterator;
 use std::ops::Index;
 use std::str::FromStr;
 use std::time::Instant;
-use mimalloc::MiMalloc;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -27,6 +27,8 @@ fn main() {
         }
     }
 
+    let mut limited = false;
+
     let args: Vec<_> = std::env::args().skip(1).collect();
 
     let mut i = 0;
@@ -40,20 +42,22 @@ fn main() {
                 .unwrap();
 
             i += 1;
+        } else if arg == "-l" {
+            limited = true;
         } else {
-            solve_single_word(&arg, &words, &zero_words);
+            solve_single_word(&arg, &words, &zero_words, limited);
             return;
         }
     }
 
-    solve_all(&words, &zero_words);
+    solve_all(&words, &zero_words, limited);
 }
 
-fn solve_single_word(answer: &str, words: &[Word], zero_words: &[Word]) {
+fn solve_single_word(answer: &str, words: &[Word], zero_words: &[Word], limited: bool) {
     let answer = Word::from_str(answer).unwrap();
     println!("Solving {answer} using {} words...", words.len());
 
-    let solution = solve_word(answer, words, zero_words, false, true);
+    let solution = solve_word(answer, words, zero_words, limited, true);
     print_solution(solution);
 }
 
@@ -67,7 +71,7 @@ fn load_word_list(path: &str) -> Vec<Word> {
         .collect()
 }
 
-fn solve_all(words: &[Word], zero_words: &[Word]) {
+fn solve_all(words: &[Word], zero_words: &[Word], limited: bool) {
     let mut answers = load_word_list("answers.txt");
     println!(
         "Solving {} answers using {} words...",
@@ -94,7 +98,7 @@ fn solve_all(words: &[Word], zero_words: &[Word]) {
         move |_| {
             while let Ok(answer) = answer_rx.recv() {
                 solution_tx
-                    .send(solve_word(answer, &words, &zero_words, true, false))
+                    .send(solve_word(answer, &words, &zero_words, limited, false))
                     .unwrap();
             }
         }
@@ -184,7 +188,7 @@ fn solve_word(
     let solution = if limited {
         find_min_yellow_solution_limit(answer, words, solution)
     } else {
-        Ok(find_min_yellow_solution(answer, words, solution))
+        Ok(find_min_yellow_solution(answer, words, solution, logs))
     };
     let seconds_yellow = start.elapsed().as_secs_f32() - seconds_zero - seconds_greedy;
     let solution = match solution {
@@ -232,7 +236,7 @@ fn solve_word(
     let solution = if limited {
         find_min_solution_limit(answer, words, solution)
     } else {
-        Ok(find_min_solution(answer, words, solution))
+        Ok(find_min_solution(answer, words, solution, logs))
     };
     let seconds_full =
         start.elapsed().as_secs_f32() - seconds_zero - seconds_greedy - seconds_yellow;
@@ -574,7 +578,7 @@ fn find_min_yellow_solution_limit(
     'outer: while let Some(partial) = stack.last_mut() {
         let depth = partial.state.guesses.len() as i32;
 
-        while let Some(&(guess, word_idx)) = words.get(partial.next_index as usize) {
+        while let Some(&(guess, word_idx)) = partial.list.get(partial.next_index as usize) {
             processed += 1;
             if processed % 10_000_000_000 == 0 {
                 return Err(min_solution);
@@ -648,7 +652,7 @@ fn find_min_yellow_solution_limit(
     Ok(min_solution)
 }
 
-fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution) -> SolutionYellow {
+fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution, logs: bool) -> SolutionYellow {
     let start = Instant::now();
 
     // filter out any words with greens
@@ -709,7 +713,7 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
 
         while let Some(&(guess, word_idx)) = partial.list.get(partial.next_index as usize) {
             processed += 1;
-            if processed % 1_000_000_000 == 0 {
+            if logs && processed % 1_000_000_000 == 0 {
                 println!(
                     "{answer}: {}B... ({:.1}%) ({:.3}s)",
                     processed / 1_000_000_000,
@@ -767,16 +771,18 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
             };
 
             if child_partial.state.guesses.len() == 6 {
-                let seconds = start.elapsed().as_secs_f32();
-                println!(
-                    "Found solution (score {}) in {} guesses in {}s ({}M/s)",
-                    child_partial.score,
-                    processed,
-                    seconds as u64,
-                    (processed as f32 / 1_000_000. / seconds) as u64
-                );
-                for word in child_partial.state.guesses {
-                    println!("{word}");
+                if logs {
+                    let seconds = start.elapsed().as_secs_f32();
+                    println!(
+                        "Found solution (score {}) in {} guesses in {}s ({}M/s)",
+                        child_partial.score,
+                        processed,
+                        seconds as u64,
+                        (processed as f32 / 1_000_000. / seconds) as u64
+                    );
+                    for word in child_partial.state.guesses {
+                        println!("{word}");
+                    }
                 }
                 min_solution = SolutionYellow {
                     score: child_partial.score,
@@ -798,21 +804,23 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
         stack.pop();
     }
 
-    let seconds = start.elapsed().as_secs_f32();
-    println!(
-        "Found solution (score {}) in {} guesses in {}s ({}M/s)",
-        min_solution.score,
-        processed,
-        seconds as u64,
-        (processed as f32 / 1_000_000. / seconds) as u64
-    );
-    for word in min_solution.state.guesses {
-        println!("{word}");
+    if logs {
+        let seconds = start.elapsed().as_secs_f32();
+        println!(
+            "Found solution (score {}) in {} guesses in {}s ({}M/s)",
+            min_solution.score,
+            processed,
+            seconds as u64,
+            (processed as f32 / 1_000_000. / seconds) as u64
+        );
+        for word in min_solution.state.guesses {
+            println!("{word}");
+        }
     }
     min_solution
 }
 
-fn find_min_solution(answer: Word, words: &[Word], better_than: Solution) -> SolutionSingle {
+fn find_min_solution(answer: Word, words: &[Word], better_than: Solution, logs: bool) -> SolutionSingle {
     let start = Instant::now();
 
     let mut stack = Vec::new();
@@ -836,7 +844,7 @@ fn find_min_solution(answer: Word, words: &[Word], better_than: Solution) -> Sol
 
         while let Some(&guess) = words.get(partial.next_index as usize) {
             processed += 1;
-            if processed % 1_000_000_000 == 0 {
+            if logs && processed % 1_000_000_000 == 0 {
                 println!(
                     "{answer}: {}B... ({:.1}%) ({:.3}s)",
                     processed / 1_000_000_000,
@@ -879,16 +887,18 @@ fn find_min_solution(answer: Word, words: &[Word], better_than: Solution) -> Sol
             };
 
             if child_partial.state.guesses.len() == 6 {
-                let seconds = start.elapsed().as_secs_f32();
-                println!(
-                    "Found solution (score {}) in {} guesses in {}s ({}M/s)",
-                    child_partial.score,
-                    processed,
-                    seconds as u64,
-                    (processed as f32 / 1_000_000. / seconds) as u64
-                );
-                for word in child_partial.state.guesses {
-                    println!("{word}");
+                if logs {
+                    let seconds = start.elapsed().as_secs_f32();
+                    println!(
+                        "Found solution (score {}) in {} guesses in {}s ({}M/s)",
+                        child_partial.score,
+                        processed,
+                        seconds as u64,
+                        (processed as f32 / 1_000_000. / seconds) as u64
+                    );
+                    for word in child_partial.state.guesses {
+                        println!("{word}");
+                    }
                 }
                 min_solution = SolutionSingle {
                     score: child_partial.score,
@@ -910,16 +920,18 @@ fn find_min_solution(answer: Word, words: &[Word], better_than: Solution) -> Sol
         stack.pop();
     }
 
-    let seconds = start.elapsed().as_secs_f32();
-    println!(
-        "Found solution (score {}) in {} guesses in {}s ({}M/s)",
-        min_solution.score,
-        processed,
-        seconds as u64,
-        (processed as f32 / 1_000_000. / seconds) as u64
-    );
-    for word in min_solution.state.guesses {
-        println!("{word}");
+    if logs {
+        let seconds = start.elapsed().as_secs_f32();
+        println!(
+            "Found solution (score {}) in {} guesses in {}s ({}M/s)",
+            min_solution.score,
+            processed,
+            seconds as u64,
+            (processed as f32 / 1_000_000. / seconds) as u64
+        );
+        for word in min_solution.state.guesses {
+            println!("{word}");
+        }
     }
     min_solution = SolutionSingle {
         score: min_solution.score,
