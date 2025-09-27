@@ -27,8 +27,6 @@ fn main() {
         }
     }
 
-    let mut limited = false;
-
     let args: Vec<_> = std::env::args().skip(1).collect();
 
     let mut i = 0;
@@ -42,22 +40,20 @@ fn main() {
                 .unwrap();
 
             i += 1;
-        } else if arg == "-l" {
-            limited = true;
         } else {
-            solve_single_word(&arg, &words, &zero_words, limited);
+            solve_single_word(&arg, &words, &zero_words);
             return;
         }
     }
 
-    solve_all(&words, &zero_words, limited);
+    solve_all(&words, &zero_words);
 }
 
-fn solve_single_word(answer: &str, words: &[Word], zero_words: &[Word], limited: bool) {
+fn solve_single_word(answer: &str, words: &[Word], zero_words: &[Word]) {
     let answer = Word::from_str(answer).unwrap();
     println!("Solving {answer} using {} words...", words.len());
 
-    let solution = solve_word(answer, words, zero_words, limited, true);
+    let solution = solve_word(answer, words, zero_words, true);
     print_solution(solution);
 }
 
@@ -71,7 +67,7 @@ fn load_word_list(path: &str) -> Vec<Word> {
         .collect()
 }
 
-fn solve_all(words: &[Word], zero_words: &[Word], limited: bool) {
+fn solve_all(words: &[Word], zero_words: &[Word]) {
     let mut answers = load_word_list("answers.txt");
     println!(
         "Solving {} answers using {} words...",
@@ -98,7 +94,7 @@ fn solve_all(words: &[Word], zero_words: &[Word], limited: bool) {
         move |_| {
             while let Ok(answer) = answer_rx.recv() {
                 solution_tx
-                    .send(solve_word(answer, &words, &zero_words, limited, false))
+                    .send(solve_word(answer, &words, &zero_words, false))
                     .unwrap();
             }
         }
@@ -133,7 +129,6 @@ fn solve_word(
     answer: Word,
     words: &[Word],
     zero_words: &[Word],
-    limited: bool,
     logs: bool,
 ) -> DoneSolution {
     let start = Instant::now();
@@ -185,63 +180,39 @@ fn solve_word(
     if logs {
         println!("Searching for yellow solution...");
     }
-    let solution = if limited {
-        find_min_yellow_solution_limit(answer, words, solution)
-    } else {
-        Ok(find_min_yellow_solution(answer, words, solution, logs))
-    };
+    let solution = find_min_yellow_solution(answer, words, solution, logs);
     let seconds_yellow = start.elapsed().as_secs_f32() - seconds_zero - seconds_greedy;
-    let solution = match solution {
-        Ok(solution) | Err(solution) if solution.score >= 100 => {
-            let mut state = State::new(answer);
-            state.guesses = solution.state.guesses;
-            Solution {
-                scores_at: [solution.score; _],
-                state,
-            }
-        }
+    if solution.score < 100 {
+        return DoneSolution {
+            kind: SolutionKind::Done,
+            word: answer,
+            score: solution.score,
+            guesses: solution.state.guesses,
+            seconds: start.elapsed().as_secs_f32(),
+            seconds_zero,
+            seconds_greedy,
+            seconds_yellow,
+            seconds_full: 0.,
+        };
+    }
 
-        Ok(solution) => {
-            return DoneSolution {
-                kind: SolutionKind::Done,
-                word: answer,
-                score: solution.score,
-                guesses: solution.state.guesses,
-                seconds: start.elapsed().as_secs_f32(),
-                seconds_zero,
-                seconds_greedy,
-                seconds_yellow,
-                seconds_full: 0.,
-            };
-        }
-
-        Err(solution) => {
-            return DoneSolution {
-                kind: SolutionKind::Limited,
-                word: answer,
-                score: solution.score,
-                guesses: solution.state.guesses,
-                seconds: start.elapsed().as_secs_f32(),
-                seconds_zero,
-                seconds_greedy,
-                seconds_yellow,
-                seconds_full: 0.,
-            };
-        }
+    let mut state = State::new(answer);
+    state.guesses = solution.state.guesses;
+    let solution = Solution {
+        scores_at: [solution.score; _],
+        state,
     };
 
     if logs {
         println!("Searching for full solution...");
     }
-    let solution = if limited {
-        find_min_solution_limit(answer, words, solution)
-    } else {
-        Ok(find_min_solution(answer, words, solution, logs))
-    };
+    let solution = find_min_solution(answer, words, solution, logs);
+
     let seconds_full =
         start.elapsed().as_secs_f32() - seconds_zero - seconds_greedy - seconds_yellow;
-    match solution {
-        Ok(solution) | Err(solution) if solution.score == i32::MAX => DoneSolution {
+
+    if solution.score == i32::MAX {
+        DoneSolution {
             kind: SolutionKind::Impossible,
             word: answer,
             score: solution.score,
@@ -251,9 +222,9 @@ fn solve_word(
             seconds_greedy,
             seconds_yellow,
             seconds_full,
-        },
-
-        Ok(solution) => DoneSolution {
+        }
+    } else {
+        DoneSolution {
             kind: SolutionKind::Done,
             word: answer,
             score: solution.score,
@@ -263,19 +234,7 @@ fn solve_word(
             seconds_greedy,
             seconds_yellow,
             seconds_full,
-        },
-
-        Err(solution) => DoneSolution {
-            kind: SolutionKind::Limited,
-            word: answer,
-            score: solution.score,
-            guesses: solution.state.guesses,
-            seconds: start.elapsed().as_secs_f32(),
-            seconds_zero,
-            seconds_greedy,
-            seconds_yellow,
-            seconds_full,
-        },
+        }
     }
 }
 
@@ -293,7 +252,6 @@ struct DoneSolution {
 
 enum SolutionKind {
     Done,
-    Limited,
     Impossible,
 }
 
@@ -304,25 +262,6 @@ fn print_solution(solution: DoneSolution) {
             _ = writeln!(
                 out,
                 "{} ({}) ({:.3}s from {:.3}, {:.3}, {:.3}, {:.3})",
-                solution.word,
-                solution.score,
-                solution.seconds,
-                solution.seconds_zero,
-                solution.seconds_greedy,
-                solution.seconds_yellow,
-                solution.seconds_full,
-            );
-            _ = writeln!(out, "-----");
-            for guess in solution.guesses {
-                _ = writeln!(out, "{guess}");
-            }
-            _ = writeln!(out,);
-        }
-        SolutionKind::Limited => {
-            let mut out = stdout().lock();
-            _ = writeln!(
-                out,
-                "{} ({}) (limited) ({:.3}s from {:.3}, {:.3}, {:.3}, {:.3})",
                 solution.word,
                 solution.score,
                 solution.seconds,
@@ -442,232 +381,12 @@ fn find_zero_solution(answer: Word, words: &[Word]) -> Option<ZeroState> {
     None
 }
 
-fn find_min_solution_limit(
+fn find_min_yellow_solution(
     answer: Word,
     words: &[Word],
     better_than: Solution,
-) -> Result<SolutionSingle, SolutionSingle> {
-    let mut stack = Vec::new();
-    stack.push(PartialSolutionSingle {
-        next_index: 0,
-        score: 0,
-        state: State::new(answer),
-    });
-
-    let mut processed = 0usize;
-    let mut min_solution = SolutionSingle {
-        score: better_than.scores_at[5],
-        state: better_than.state,
-    };
-
-    'outer: while let Some(partial) = stack.last_mut() {
-        let depth = partial.state.guesses.len() as i32;
-        while let Some(&guess) = words.get(partial.next_index as usize) {
-            processed += 1;
-            if processed % 10_000_000_000 == 0 {
-                return Err(min_solution);
-            }
-
-            partial.next_index += 1;
-
-            if !partial.state.valid_guess(guess) {
-                continue;
-            }
-
-            if min_solution.score < partial.score + partial.state.min_score(guess) * (6 - depth) {
-                continue;
-            }
-
-            let word_score = partial.state.eval_score(guess);
-            if min_solution.score < partial.score + word_score * (6 - depth) {
-                continue;
-            }
-            let new_score = partial.score + word_score;
-
-            if partial.state.guesses.len() == 5 && new_score == min_solution.score {
-                continue;
-            }
-
-            let mut child_state = partial.state.clone();
-            child_state.apply(guess);
-
-            let child_partial = PartialSolutionSingle {
-                score: new_score,
-                next_index: 0,
-                state: child_state,
-            };
-
-            if child_partial.state.guesses.len() == 6 {
-                min_solution = SolutionSingle {
-                    score: child_partial.score,
-                    state: child_partial.state,
-                };
-
-                if new_score <= 1 {
-                    return Ok(min_solution);
-                }
-
-                continue;
-            } else {
-                stack.push(child_partial);
-                continue 'outer;
-            }
-        }
-
-        stack.pop();
-    }
-
-    Ok(min_solution)
-}
-
-fn find_min_yellow_solution_limit(
-    answer: Word,
-    words: &[Word],
-    better_than: Solution,
-) -> Result<SolutionYellow, SolutionYellow> {
-    // filter out any words with greens
-    let words: Vec<_> = words
-        .iter()
-        .copied()
-        .filter(|&w| {
-            w.letters
-                .into_iter()
-                .zip(answer.letters)
-                .all(|(a, b)| a != b)
-        })
-        .enumerate()
-        .map(|(i, word)| (word, i as u32))
-        .collect();
-
-    let grey_words: Vec<Vec<_>> = words
-        .iter()
-        .copied()
-        .map(|(word, _)| {
-            words
-                .iter()
-                .copied()
-                .filter(|&(other, _)| (word.mask & other.mask) == 0)
-                .collect()
-        })
-        .collect();
-
-    let initial_grey: Vec<_> = words
-        .iter()
-        .copied()
-        .filter(|&(word, _)| (word.mask & answer.mask) == 0)
-        .collect();
-
-    let mut stack = Vec::new();
-    stack.push(PartialSolutionYellow {
-        next_index: 0,
-        score: 0,
-        last_score: -1,
-        last_idx: 0,
-        state: YellowState::new(answer),
-        list: &initial_grey,
-    });
-
-    let mut processed = 0usize;
-    let mut min_solution = SolutionYellow {
-        score: better_than.scores_at[5],
-        state: {
-            let mut state = YellowState::new(better_than.state.word);
-            state.guesses = better_than.state.guesses;
-            state
-        },
-    };
-
-    'outer: while let Some(partial) = stack.last_mut() {
-        let depth = partial.state.guesses.len() as i32;
-
-        while let Some(&(guess, word_idx)) = partial.list.get(partial.next_index as usize) {
-            processed += 1;
-            if processed % 10_000_000_000 == 0 {
-                return Err(min_solution);
-            }
-
-            partial.next_index += 1;
-
-            if !partial.state.valid_guess(guess) {
-                continue;
-            }
-
-            let word_min_score = partial.state.min_score(guess);
-            if (depth == 1 && word_min_score > 0)
-                || min_solution.score <= partial.score + word_min_score * (6 - depth)
-            {
-                continue;
-            }
-
-            let word_score = partial.state.eval_score(guess);
-            if min_solution.score <= partial.score + word_score * (6 - depth) {
-                continue;
-            }
-
-            if word_score == partial.last_score && word_idx < partial.last_idx {
-                continue;
-            }
-
-            let new_score = partial.score + word_score;
-            if partial.state.guesses.len() == 5 && new_score == min_solution.score {
-                continue;
-            }
-
-            let mut child_state = partial.state.clone();
-            child_state.apply(guess);
-
-            let child_list = if word_score == 0 {
-                let new_list = &grey_words[word_idx as usize];
-                if new_list.len() < partial.list.len() || depth == 0 {
-                    new_list
-                } else {
-                    partial.list
-                }
-            } else {
-                partial.list
-            };
-
-            let start_index = if new_score + (word_score + 1) * (5 - depth) >= min_solution.score {
-                partial.next_index
-            }
-            else {
-                0
-            };
-
-            let child_partial = PartialSolutionYellow {
-                score: new_score,
-                next_index: start_index,
-                last_score: word_score,
-                last_idx: word_idx,
-                state: child_state,
-                list: child_list,
-            };
-
-            if child_partial.state.guesses.len() == 6 {
-                min_solution = SolutionYellow {
-                    score: child_partial.score,
-                    state: child_partial.state,
-                };
-
-                // see same comment in find_min_min_solution
-                if new_score <= 1 {
-                    return Ok(min_solution);
-                }
-
-                continue;
-            } else {
-                stack.push(child_partial);
-                continue 'outer;
-            }
-        }
-
-        stack.pop();
-    }
-
-    Ok(min_solution)
-}
-
-fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution, logs: bool) -> SolutionYellow {
+    logs: bool,
+) -> SolutionYellow {
     let start = Instant::now();
 
     // filter out any words with greens
@@ -786,8 +505,7 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution,
 
             let start_index = if new_score + (word_score + 1) * (5 - depth) >= min_solution.score {
                 partial.next_index
-            }
-            else {
+            } else {
                 0
             };
 
@@ -850,7 +568,12 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution,
     min_solution
 }
 
-fn find_min_solution(answer: Word, words: &[Word], better_than: Solution, logs: bool) -> SolutionSingle {
+fn find_min_solution(
+    answer: Word,
+    words: &[Word],
+    better_than: Solution,
+    logs: bool,
+) -> SolutionSingle {
     let start = Instant::now();
 
     let mut stack = Vec::new();
