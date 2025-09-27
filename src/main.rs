@@ -125,12 +125,7 @@ fn solve_all(words: &[Word], zero_words: &[Word]) {
     }
 }
 
-fn solve_word(
-    answer: Word,
-    words: &[Word],
-    zero_words: &[Word],
-    logs: bool,
-) -> DoneSolution {
+fn solve_word(answer: Word, words: &[Word], zero_words: &[Word], logs: bool) -> DoneSolution {
     let start = Instant::now();
     let zero_solution = find_zero_solution(answer, zero_words);
     let seconds_zero = start.elapsed().as_secs_f32();
@@ -160,7 +155,7 @@ fn solve_word(
     });
     let seconds_greedy = start.elapsed().as_secs_f32() - seconds_zero;
     if logs && solution.scores_at[5] != i32::MAX {
-        println!("Found greedy solution with {} score", solution.scores_at[5]);
+        println!("Found greedy solution with score {}", solution.scores_at[5]);
     }
 
     if solution.scores_at[5] == 1 {
@@ -180,7 +175,7 @@ fn solve_word(
     if logs {
         println!("Searching for yellow solution...");
     }
-    let solution = find_min_yellow_solution(answer, words, solution, logs);
+    let solution = find_min_yellow_solution(answer, words, solution);
     let seconds_yellow = start.elapsed().as_secs_f32() - seconds_zero - seconds_greedy;
     if solution.score < 100 {
         return DoneSolution {
@@ -381,14 +376,7 @@ fn find_zero_solution(answer: Word, words: &[Word]) -> Option<ZeroState> {
     None
 }
 
-fn find_min_yellow_solution(
-    answer: Word,
-    words: &[Word],
-    better_than: Solution,
-    logs: bool,
-) -> SolutionYellow {
-    let start = Instant::now();
-
+fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution) -> SolutionYellow {
     // filter out any words with greens
     let words: Vec<_> = words
         .iter()
@@ -431,7 +419,6 @@ fn find_min_yellow_solution(
         list: &initial_grey,
     });
 
-    let mut processed = 0usize;
     let mut min_solution = SolutionYellow {
         score: better_than.scores_at[5],
         state: {
@@ -441,27 +428,10 @@ fn find_min_yellow_solution(
         },
     };
 
-    'outer: while let Some(mut partial) = stack.last_mut() {
+    'outer: while let Some(partial) = stack.last_mut() {
         let depth = partial.state.guesses.len() as i32;
 
         while let Some(&(guess, word_idx)) = partial.list.get(partial.next_index as usize) {
-            if logs {
-                processed += 1;
-                if processed % 1_000_000_000 == 0 {
-                    let root_index = stack[0].next_index;
-
-                    println!(
-                        "{answer}: {}B... ({:.1}%) ({:.3}s)",
-                        processed / 1_000_000_000,
-                        (root_index as f32 / words.len() as f32) * 100.,
-                        start.elapsed().as_secs_f32(),
-                    );
-
-                    // Make the borrow checker happy
-                    partial = stack.last_mut().unwrap();
-                }
-            }
-
             partial.next_index += 1;
 
             if !partial.state.valid_guess(guess) {
@@ -518,53 +488,28 @@ fn find_min_yellow_solution(
                 list: child_list,
             };
 
-            if child_partial.state.guesses.len() == 6 {
-                if logs {
-                    let seconds = start.elapsed().as_secs_f32();
-                    println!(
-                        "Found solution (score {}) in {} guesses in {}s ({}M/s)",
-                        child_partial.score,
-                        processed,
-                        seconds as u64,
-                        (processed as f32 / 1_000_000. / seconds) as u64
-                    );
-                    for word in child_partial.state.guesses {
-                        println!("{word}");
-                    }
-                }
+            if child_partial.state.guesses.len() < 6 {
+                stack.push(child_partial);
+                continue 'outer;
+            } else {
                 min_solution = SolutionYellow {
                     score: child_partial.score,
                     state: child_partial.state,
                 };
 
-                // see same comment in find_min_min_solution
+                // We've already excluded 0 yellow solutions by the zero search
+                // so 1 is the best it's gonna get
                 if new_score <= 1 {
-                    break 'outer;
+                    return min_solution;
+                } else {
+                    continue;
                 }
-
-                continue;
-            } else {
-                stack.push(child_partial);
-                continue 'outer;
             }
         }
 
         stack.pop();
     }
 
-    if logs {
-        let seconds = start.elapsed().as_secs_f32();
-        println!(
-            "Found solution (score {}) in {} guesses in {}s ({}M/s)",
-            min_solution.score,
-            processed,
-            seconds as u64,
-            (processed as f32 / 1_000_000. / seconds) as u64
-        );
-        for word in min_solution.state.guesses {
-            println!("{word}");
-        }
-    }
     min_solution
 }
 
@@ -658,7 +603,7 @@ fn find_min_solution(
                     state: child_partial.state,
                 };
 
-                // see same comment in find_min_min_solution
+                // see same comment in find_min_yellow_solution
                 if new_score <= 1 {
                     break 'outer;
                 }
