@@ -459,12 +459,24 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
             }
 
             let new_score = partial.score + word_score;
-            if partial.state.guesses.len() == 5 && new_score == min_solution.score {
-                continue;
-            }
 
-            let mut child_state = partial.state.clone();
+            let mut child_state = partial.state;
             child_state.apply(guess);
+
+            if depth == 5 {
+                min_solution = SolutionYellow {
+                    score: new_score,
+                    state: child_state,
+                };
+
+                // We've already excluded 0 yellow solutions by the zero search
+                // so 1 is the best it's gonna get
+                if new_score <= 1 {
+                    return min_solution;
+                } else {
+                    continue;
+                }
+            }
 
             let child_list = if word_score == 0 {
                 let new_list = &grey_words[word_idx as usize];
@@ -492,23 +504,8 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
                 list: child_list,
             };
 
-            if child_partial.state.guesses.len() < 6 {
-                stack.push(child_partial);
-                continue 'outer;
-            } else {
-                min_solution = SolutionYellow {
-                    score: child_partial.score,
-                    state: child_partial.state,
-                };
-
-                // We've already excluded 0 yellow solutions by the zero search
-                // so 1 is the best it's gonna get
-                if new_score <= 1 {
-                    return min_solution;
-                } else {
-                    continue;
-                }
-            }
+            stack.push(child_partial);
+            continue 'outer;
         }
 
         stack.pop();
@@ -517,6 +514,8 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
     min_solution
 }
 
+/// Misses some optimizations introduced in [`find_min_yellow_solution`],
+/// since it's effectively dead code (all words are solvable using only yellows).
 fn find_min_solution(
     answer: Word,
     words: &[Word],
