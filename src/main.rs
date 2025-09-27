@@ -434,7 +434,7 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
         while let Some(&(guess, word_idx)) = partial.list.get(partial.next_index as usize) {
             partial.next_index += 1;
 
-            if !partial.state.valid_guess(guess) {
+            if !partial.state.valid_guess_min(guess) {
                 continue;
             }
 
@@ -442,6 +442,10 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
             if (depth == 1 && word_min_score > 0)
                 || min_solution.score <= partial.score + word_min_score * (6 - depth)
             {
+                continue;
+            }
+
+            if !partial.state.valid_guess(guess) {
                 continue;
             }
 
@@ -843,11 +847,11 @@ impl YellowState {
         score
     }
 
-    fn valid_guess(&self, guess: Word) -> bool {
-        if (guess.mask & self.full_gray_mask) != 0 {
-            return false;
-        }
+    fn valid_guess_min(&self, guess: Word) -> bool {
+        (guess.mask & self.full_gray_mask) == 0
+    }
 
+    fn valid_guess(&self, guess: Word) -> bool {
         let mut answer_letters = self.word.letters;
         let mut yellow_counts = self.yellow_counts;
 
