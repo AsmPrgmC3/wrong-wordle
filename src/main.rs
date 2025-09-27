@@ -561,6 +561,8 @@ fn find_min_yellow_solution_limit(
     stack.push(PartialSolutionYellow {
         next_index: 0,
         score: 0,
+        last_score: -1,
+        last_idx: 0,
         state: YellowState::new(answer),
         list: &initial_grey,
     });
@@ -592,13 +594,17 @@ fn find_min_yellow_solution_limit(
 
             let word_min_score = partial.state.min_score(guess);
             if (depth == 1 && word_min_score > 0)
-                || min_solution.score < partial.score + word_min_score * (6 - depth)
+                || min_solution.score <= partial.score + word_min_score * (6 - depth)
             {
                 continue;
             }
 
             let word_score = partial.state.eval_score(guess);
-            if min_solution.score < partial.score + word_score * (6 - depth) {
+            if min_solution.score <= partial.score + word_score * (6 - depth) {
+                continue;
+            }
+
+            if word_score == partial.last_score && word_idx < partial.last_idx {
                 continue;
             }
 
@@ -621,9 +627,18 @@ fn find_min_yellow_solution_limit(
                 partial.list
             };
 
+            let start_index = if new_score + (word_score + 1) * (5 - depth) >= min_solution.score {
+                partial.next_index
+            }
+            else {
+                0
+            };
+
             let child_partial = PartialSolutionYellow {
                 score: new_score,
-                next_index: 0,
+                next_index: start_index,
+                last_score: word_score,
+                last_idx: word_idx,
                 state: child_state,
                 list: child_list,
             };
@@ -691,6 +706,8 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution,
     stack.push(PartialSolutionYellow {
         next_index: 0,
         score: 0,
+        last_score: -1,
+        last_idx: 0,
         state: YellowState::new(answer),
         list: &initial_grey,
     });
@@ -734,13 +751,17 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution,
 
             let word_min_score = partial.state.min_score(guess);
             if (depth == 1 && word_min_score > 0)
-                || min_solution.score < partial.score + word_min_score * (6 - depth)
+                || min_solution.score <= partial.score + word_min_score * (6 - depth)
             {
                 continue;
             }
 
             let word_score = partial.state.eval_score(guess);
-            if min_solution.score < partial.score + word_score * (6 - depth) {
+            if min_solution.score <= partial.score + word_score * (6 - depth) {
+                continue;
+            }
+
+            if word_score == partial.last_score && word_idx < partial.last_idx {
                 continue;
             }
 
@@ -763,9 +784,18 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution,
                 partial.list
             };
 
+            let start_index = if new_score + (word_score + 1) * (5 - depth) >= min_solution.score {
+                partial.next_index
+            }
+            else {
+                0
+            };
+
             let child_partial = PartialSolutionYellow {
                 score: new_score,
-                next_index: 0,
+                next_index: start_index,
+                last_score: word_score,
+                last_idx: word_idx,
                 state: child_state,
                 list: child_list,
             };
@@ -964,6 +994,8 @@ struct PartialSolutionZero {
 struct PartialSolutionYellow<'a> {
     next_index: u32,
     score: i32,
+    last_score: i32,
+    last_idx: u32,
     state: YellowState,
     list: &'a [(Word, u32)],
 }
