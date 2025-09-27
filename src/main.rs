@@ -869,11 +869,7 @@ impl YellowState {
             }
         }
 
-        if yellow_counts.into_iter().any(|c| c > 0) {
-            return false;
-        }
-
-        !self.guesses.contains(&guess)
+        yellow_counts.into_iter().all(|c| c <= 0)
     }
 }
 
@@ -1034,11 +1030,7 @@ impl State {
             }
         }
 
-        if yellow_counts.into_iter().any(|c| c > 0) {
-            return false;
-        }
-
-        !self.guesses.contains(&guess)
+        yellow_counts.into_iter().all(|c| c <= 0)
     }
 }
 
