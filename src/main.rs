@@ -441,28 +441,28 @@ fn find_min_yellow_solution(
         },
     };
 
-    let mut root_index = 0;
-
-    'outer: while let Some(partial) = stack.last_mut() {
+    'outer: while let Some(mut partial) = stack.last_mut() {
         let depth = partial.state.guesses.len() as i32;
-        let outermost = depth == 0;
 
         while let Some(&(guess, word_idx)) = partial.list.get(partial.next_index as usize) {
-            processed += 1;
-            if logs && processed % 1_000_000_000 == 0 {
-                println!(
-                    "{answer}: {}B... ({:.1}%) ({:.3}s)",
-                    processed / 1_000_000_000,
-                    (root_index as f32 / words.len() as f32) * 100.,
-                    start.elapsed().as_secs_f32(),
-                );
+            if logs {
+                processed += 1;
+                if processed % 1_000_000_000 == 0 {
+                    let root_index = stack[0].next_index;
+
+                    println!(
+                        "{answer}: {}B... ({:.1}%) ({:.3}s)",
+                        processed / 1_000_000_000,
+                        (root_index as f32 / words.len() as f32) * 100.,
+                        start.elapsed().as_secs_f32(),
+                    );
+
+                    // Make the borrow checker happy
+                    partial = stack.last_mut().unwrap();
+                }
             }
 
             partial.next_index += 1;
-
-            if outermost {
-                root_index = partial.next_index;
-            }
 
             if !partial.state.valid_guess(guess) {
                 continue;
