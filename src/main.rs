@@ -41,7 +41,7 @@ fn main() {
 
             i += 1;
         } else {
-            solve_single_word(&arg, &words, &zero_words);
+            solve_single_word(arg, &words, &zero_words);
             return;
         }
     }
@@ -317,16 +317,13 @@ fn find_greedy_solution(answer: Word, words: &[Word]) -> Option<Solution> {
             min_solution = Some((guess_score, guess));
         }
 
-        let Some((guess_score, word)) = min_solution else {
-            return None;
-        };
+        let (guess_score, word) = min_solution?;
 
         state.apply(word);
         if depth > 0 {
             scores_at[depth] = scores_at[depth - 1];
         }
         scores_at[depth] += guess_score;
-        // println!("{word} (+{guess_score}/{})", scores_at[depth]);
     }
 
     Some(Solution { scores_at, state })
@@ -545,7 +542,7 @@ fn find_min_solution(
 
         while let Some(&guess) = words.get(partial.next_index as usize) {
             processed += 1;
-            if logs && processed % 1_000_000_000 == 0 {
+            if logs && processed.is_multiple_of(1_000_000_000) {
                 println!(
                     "{answer}: {}B... ({:.1}%) ({:.3}s)",
                     processed / 1_000_000_000,
@@ -578,7 +575,7 @@ fn find_min_solution(
                 continue;
             }
 
-            let mut child_state = partial.state.clone();
+            let mut child_state = partial.state;
             child_state.apply(guess);
 
             let child_partial = PartialSolutionSingle {
@@ -718,7 +715,7 @@ impl FromStr for Word {
         }
 
         let ascii_letters: [u8; 5] = s.as_bytes()[0..5].try_into().unwrap();
-        let letters = ascii_letters.map(|c| c.to_ascii_lowercase() - 'a' as u8);
+        let letters = ascii_letters.map(|c| c.to_ascii_lowercase() - b'a');
 
         let mask = {
             let mut mask = 0;
@@ -735,7 +732,7 @@ impl FromStr for Word {
 impl Display for Word {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for l in self.letters {
-            f.write_char((l + 'A' as u8) as char)?;
+            f.write_char((l + b'A') as char)?;
         }
 
         Ok(())
@@ -796,6 +793,7 @@ impl YellowState {
 
         let mut yellow_counts = [0i8; 26];
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..5 {
             let guess_letter = guess_letters[i];
 
@@ -916,6 +914,7 @@ impl State {
             }
         }
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..5 {
             let guess_letter = guess_letters[i];
 
@@ -970,6 +969,7 @@ impl State {
             }
         }
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..5 {
             let guess_letter = guess_letters[i];
 
@@ -1011,6 +1011,7 @@ impl State {
             return false;
         }
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..5 {
             let guess_letter = guess_letters[i];
 
@@ -1096,10 +1097,6 @@ impl GuessVec {
         assert!(self.len < 6, "A GuessVec can only store up to 6 elements");
         self.guesses[self.len as usize] = word;
         self.len += 1;
-    }
-
-    fn contains(&self, word: &Word) -> bool {
-        self.guesses[..self.len as usize].contains(word)
     }
 
     fn as_slice(&self) -> &[Word] {
