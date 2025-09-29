@@ -832,9 +832,7 @@ impl YellowState {
 
         let mut score = 0;
 
-        for i in 0..5 {
-            let guess_letter = guess.letters[i];
-
+        for guess_letter in guess.letters {
             if let Some(o) = answer_letters.into_iter().position(|l| l == guess_letter) {
                 score += 1;
                 answer_letters[o] = !0;
@@ -969,10 +967,7 @@ impl State {
             }
         }
 
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..5 {
-            let guess_letter = guess_letters[i];
-
+        for guess_letter in guess_letters {
             if guess_letter == !0 {
                 continue;
             }
