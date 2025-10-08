@@ -408,12 +408,12 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
 
     let mut stack = Vec::new();
     stack.push(PartialSolutionYellow {
-        next_index: 0,
         score: 0,
         last_score: -1,
         last_idx: 0,
         state: YellowState::new(answer),
-        list: &initial_grey,
+        remaining_list: &initial_grey,
+        whole_list: &initial_grey,
     });
 
     let mut min_solution = SolutionYellow {
@@ -428,9 +428,7 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
     'outer: while let Some(partial) = stack.last_mut() {
         let depth = partial.state.guesses.len() as i32;
 
-        while let Some(&(guess, word_idx)) = partial.list.get(partial.next_index as usize) {
-            partial.next_index += 1;
-
+        while let Some(&(guess, word_idx)) = partial.remaining_list.split_off_first() {
             if !partial.state.valid_guess_min(guess) {
                 continue;
             }
@@ -475,30 +473,24 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
                 }
             }
 
-            let child_list = if word_score == 0 {
-                let new_list = &grey_words[word_idx as usize];
-                if new_list.len() < partial.list.len() || depth == 0 {
-                    new_list
-                } else {
-                    partial.list
-                }
+            let (child_list, child_whole_list) = if word_score == 0
+                && let new_list = grey_words[word_idx as usize].as_slice()
+                && (new_list.len() < partial.remaining_list.len() || depth == 0)
+            {
+                (new_list, new_list)
+            } else if new_score + (word_score + 1) * (5 - depth) >= min_solution.score {
+                (partial.remaining_list, partial.whole_list)
             } else {
-                partial.list
-            };
-
-            let start_index = if new_score + (word_score + 1) * (5 - depth) >= min_solution.score {
-                partial.next_index
-            } else {
-                0
+                (partial.whole_list, partial.whole_list)
             };
 
             let child_partial = PartialSolutionYellow {
                 score: new_score,
-                next_index: start_index,
                 last_score: word_score,
                 last_idx: word_idx,
                 state: child_state,
-                list: child_list,
+                remaining_list: child_list,
+                whole_list: child_whole_list,
             };
 
             stack.push(child_partial);
@@ -660,12 +652,12 @@ struct PartialSolutionZero {
 }
 
 struct PartialSolutionYellow<'a> {
-    next_index: u32,
     score: i32,
     last_score: i32,
     last_idx: u32,
     state: YellowState,
-    list: &'a [(Word, u32)],
+    remaining_list: &'a [(Word, u32)],
+    whole_list: &'a [(Word, u32)],
 }
 
 struct PartialSolutionSingle {
@@ -709,7 +701,6 @@ impl FromStr for Word {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // assert!(s.len() == 5 && s.is_ascii());
         if s.len() != 5 || !s.is_ascii() {
             return Err(());
         }
