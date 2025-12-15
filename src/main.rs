@@ -391,7 +391,12 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
 
     words.sort_by_key(|&(_, score)| score);
 
-    let words: Vec<_> = words.into_iter().rev().enumerate().map(|(i, (word, score))| (word, i as u32, score)).collect();
+    let words: Vec<_> = words
+        .into_iter()
+        .rev()
+        .enumerate()
+        .map(|(i, (word, score))| (word, i as u32, score))
+        .collect();
 
     let word_scores: Vec<_> = words.iter().map(|&(_, _, score)| score).collect();
 
@@ -480,7 +485,7 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
 
             let (child_list, child_whole_list) = if depth == 0 {
                 let new_list = grey_words[word_idx as usize].as_slice();
-                    (new_list, new_list)
+                (new_list, new_list)
             } else if word_score == 0
                 && let new_list = grey_words[word_idx as usize].as_slice()
                 && new_list.len() < partial.remaining_list.len()
@@ -677,7 +682,7 @@ struct PartialSolutionSingle {
 #[derive(Copy, Clone)]
 struct Word {
     mask: u32,
-    letters: [u8; 5],
+    letters: [Letter; 5],
 }
 
 impl PartialEq for Word {
@@ -709,17 +714,21 @@ impl FromStr for Word {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.len() != 5 || !s.is_ascii() {
+        if s.len() != 5
+            || s.bytes()
+                .map(|c| c.to_ascii_lowercase())
+                .any(|c| c < b'a' || c > b'z')
+        {
             return Err(());
         }
 
         let ascii_letters: [u8; 5] = s.as_bytes()[0..5].try_into().unwrap();
-        let letters = ascii_letters.map(|c| c.to_ascii_lowercase() - b'a');
+        let letters = ascii_letters.map(|c| Letter::try_from(c).unwrap());
 
         let mask = {
             let mut mask = 0;
             for letter in letters {
-                mask |= 1 << letter;
+                mask |= 1 << (letter as u8);
             }
             mask
         };
@@ -731,7 +740,7 @@ impl FromStr for Word {
 impl Display for Word {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for l in self.letters {
-            f.write_char((l + b'A') as char)?;
+            f.write_char(((l as u8) + b'A') as char)?;
         }
 
         Ok(())
@@ -787,28 +796,31 @@ impl YellowState {
     fn apply(&mut self, guess: Word) {
         self.full_gray_mask |= guess.mask & !self.word.mask;
 
-        let mut answer_letters = self.word.letters;
-        let mut guess_letters = guess.letters;
+        let mut answer_letters = self.word.letters.map(Some);
+        let mut guess_letters = guess.letters.map(Some);
 
         let mut yellow_counts = [0i8; 26];
 
         #[allow(clippy::needless_range_loop)]
         for i in 0..5 {
-            let guess_letter = guess_letters[i];
-
-            if let Some(o) = answer_letters.into_iter().position(|l| l == guess_letter) {
-                self.yellow_masks[i] |= 1 << guess_letter;
-                answer_letters[o] = !0;
-                guess_letters[i] = !0;
-                yellow_counts[guess_letter as usize] += 1;
-            } else if self.word.letters.contains(&guess_letter) {
-                self.yellow_masks[i] |= 1 << guess_letter;
+            if let Some(guess_letter) = guess_letters[i] {
+                if let Some(o) = answer_letters
+                    .into_iter()
+                    .position(|l| l == Some(guess_letter))
+                {
+                    self.yellow_masks[i] |= 1 << (guess_letter as u8);
+                    answer_letters[o] = None;
+                    guess_letters[i] = None;
+                    yellow_counts[guess_letter as usize] += 1;
+                } else if self.word.letters.contains(&guess_letter) {
+                    self.yellow_masks[i] |= 1 << (guess_letter as u8);
+                }
             }
         }
 
         for l in guess_letters {
-            if l != !0 {
-                self.gray_mask |= 1 << l;
+            if let Some(l) = l {
+                self.gray_mask |= 1 << (l as u8);
             }
         }
 
@@ -824,14 +836,17 @@ impl YellowState {
     }
 
     fn eval_score(&self, guess: Word) -> i32 {
-        let mut answer_letters = self.word.letters;
+        let mut answer_letters = self.word.letters.map(Some);
 
         let mut score = 0;
 
         for guess_letter in guess.letters {
-            if let Some(o) = answer_letters.into_iter().position(|l| l == guess_letter) {
+            if let Some(o) = answer_letters
+                .into_iter()
+                .position(|l| l == Some(guess_letter))
+            {
                 score += 1;
-                answer_letters[o] = !0;
+                answer_letters[o] = None;
             }
         }
 
@@ -843,20 +858,23 @@ impl YellowState {
     }
 
     fn valid_guess(&self, guess: Word) -> bool {
-        let mut answer_letters = self.word.letters;
+        let mut answer_letters = self.word.letters.map(Some);
         let mut yellow_counts = self.yellow_counts;
 
         for i in 0..5 {
             let guess_letter = guess.letters[i];
 
-            if (self.yellow_masks[i] & (1 << guess_letter)) != 0 {
+            if (self.yellow_masks[i] & (1 << (guess_letter as u8))) != 0 {
                 return false;
             }
 
-            if let Some(o) = answer_letters.into_iter().position(|l| l == guess_letter) {
-                answer_letters[o] = !0;
+            if let Some(o) = answer_letters
+                .into_iter()
+                .position(|l| l == Some(guess_letter))
+            {
+                answer_letters[o] = None;
                 yellow_counts[guess_letter as usize] -= 1;
-            } else if (self.gray_mask & (1 << guess_letter)) != 0 {
+            } else if (self.gray_mask & (1 << (guess_letter as u8))) != 0 {
                 return false;
             }
         }
@@ -892,43 +910,42 @@ impl State {
     fn apply(&mut self, guess: Word) {
         self.full_gray_mask |= guess.mask & !self.word.mask;
 
-        let mut answer_letters = self.word.letters;
-        let mut guess_letters = guess.letters;
+        let mut answer_letters = self.word.letters.map(Some);
+        let mut guess_letters = guess.letters.map(Some);
 
         let mut yellow_counts = [0i8; 26];
 
         for i in 0..5 {
-            let guess_letter = guess_letters[i];
-
-            if guess_letter == answer_letters[i] {
+            if let Some(guess_letter) = guess_letters[i]
+                && answer_letters[i] == Some(guess_letter)
+            {
                 self.green_index_mask |= 1 << i;
                 yellow_counts[guess_letter as usize] += 1;
-                answer_letters[i] = !0;
-                guess_letters[i] = !0;
+                answer_letters[i] = None;
+                guess_letters[i] = None;
             }
         }
 
         #[allow(clippy::needless_range_loop)]
         for i in 0..5 {
-            let guess_letter = guess_letters[i];
-
-            if guess_letter == !0 {
-                continue;
-            }
-
-            if let Some(o) = answer_letters.into_iter().position(|l| l == guess_letter) {
-                self.yellow_masks[i] |= 1 << guess_letter;
-                answer_letters[o] = !0;
-                guess_letters[i] = !0;
-                yellow_counts[guess_letter as usize] += 1;
-            } else if self.word.letters.contains(&guess_letter) {
-                self.yellow_masks[i] |= 1 << guess_letter;
+            if let Some(guess_letter) = guess_letters[i] {
+                if let Some(o) = answer_letters
+                    .into_iter()
+                    .position(|l| l == Some(guess_letter))
+                {
+                    self.yellow_masks[i] |= 1 << (guess_letter as u8);
+                    answer_letters[o] = None;
+                    guess_letters[i] = None;
+                    yellow_counts[guess_letter as usize] += 1;
+                } else if self.word.letters.contains(&guess_letter) {
+                    self.yellow_masks[i] |= 1 << (guess_letter as u8);
+                }
             }
         }
 
         for l in guess_letters {
-            if l != !0 {
-                self.gray_mask |= 1 << l;
+            if let Some(l) = l {
+                self.gray_mask |= 1 << (l as u8);
             }
         }
 
@@ -948,8 +965,8 @@ impl State {
     }
 
     fn eval_score(&self, guess: Word) -> i32 {
-        let mut answer_letters = self.word.letters;
-        let mut guess_letters = guess.letters;
+        let mut answer_letters = self.word.letters.map(Some);
+        let mut guess_letters = guess.letters.map(Some);
 
         let mut score = 0;
 
@@ -958,19 +975,20 @@ impl State {
 
             if guess_letter == answer_letters[i] {
                 score += 100;
-                answer_letters[i] = !0;
-                guess_letters[i] = !0;
+                answer_letters[i] = None;
+                guess_letters[i] = None;
             }
         }
 
         for guess_letter in guess_letters {
-            if guess_letter == !0 {
-                continue;
-            }
-
-            if let Some(o) = answer_letters.into_iter().position(|l| l == guess_letter) {
-                score += 1;
-                answer_letters[o] = !0;
+            if let Some(guess_letter) = guess_letter {
+                if let Some(o) = answer_letters
+                    .into_iter()
+                    .position(|l| l == Some(guess_letter))
+                {
+                    score += 1;
+                    answer_letters[o] = None;
+                }
             }
         }
 
@@ -982,17 +1000,17 @@ impl State {
             return false;
         }
 
-        let mut answer_letters = self.word.letters;
-        let mut guess_letters = guess.letters;
+        let mut answer_letters = self.word.letters.map(Some);
+        let mut guess_letters = guess.letters.map(Some);
 
         let mut yellow_counts = self.yellow_counts;
         let mut remaining_greens = self.green_index_mask;
         for i in 0..5 {
             let guess_letter = guess.letters[i];
 
-            if guess_letter == answer_letters[i] {
-                answer_letters[i] = !0;
-                guess_letters[i] = !0;
+            if answer_letters[i] == Some(guess_letter) {
+                answer_letters[i] = None;
+                guess_letters[i] = None;
                 remaining_greens &= !(1 << i);
                 yellow_counts[guess_letter as usize] -= 1;
             }
@@ -1004,21 +1022,20 @@ impl State {
 
         #[allow(clippy::needless_range_loop)]
         for i in 0..5 {
-            let guess_letter = guess_letters[i];
+            if let Some(guess_letter) = guess_letters[i] {
+                if (self.yellow_masks[i] & (1 << (guess_letter as u8))) != 0 {
+                    return false;
+                }
 
-            if guess_letter == !0 {
-                continue;
-            }
-
-            if (self.yellow_masks[i] & (1 << guess_letter)) != 0 {
-                return false;
-            }
-
-            if let Some(o) = answer_letters.into_iter().position(|l| l == guess_letter) {
-                answer_letters[o] = !0;
-                yellow_counts[guess_letter as usize] -= 1;
-            } else if (self.gray_mask & (1 << guess_letter)) != 0 {
-                return false;
+                if let Some(o) = answer_letters
+                    .into_iter()
+                    .position(|l| l == Some(guess_letter))
+                {
+                    answer_letters[o] = None;
+                    yellow_counts[guess_letter as usize] -= 1;
+                } else if (self.gray_mask & (1 << (guess_letter as u8))) != 0 {
+                    return false;
+                }
             }
         }
 
@@ -1038,7 +1055,7 @@ impl Default for GuessVec {
             len: 0,
             guesses: [Word {
                 mask: 0,
-                letters: [0; 5],
+                letters: [Letter::A; 5],
             }; 6],
         }
     }
@@ -1125,6 +1142,73 @@ impl Iterator for GuessVecIter {
 }
 
 impl FusedIterator for GuessVecIter {}
+
+#[repr(u8)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+enum Letter {
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+}
+
+impl TryFrom<u8> for Letter {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value.to_ascii_lowercase() {
+            b'a' => Ok(Letter::A),
+            b'b' => Ok(Letter::B),
+            b'c' => Ok(Letter::C),
+            b'd' => Ok(Letter::D),
+            b'e' => Ok(Letter::E),
+            b'f' => Ok(Letter::F),
+            b'g' => Ok(Letter::G),
+            b'h' => Ok(Letter::H),
+            b'i' => Ok(Letter::I),
+            b'j' => Ok(Letter::J),
+            b'k' => Ok(Letter::K),
+            b'l' => Ok(Letter::L),
+            b'm' => Ok(Letter::M),
+            b'n' => Ok(Letter::N),
+            b'o' => Ok(Letter::O),
+            b'p' => Ok(Letter::P),
+            b'q' => Ok(Letter::Q),
+            b'r' => Ok(Letter::R),
+            b's' => Ok(Letter::S),
+            b't' => Ok(Letter::T),
+            b'u' => Ok(Letter::U),
+            b'v' => Ok(Letter::V),
+            b'w' => Ok(Letter::W),
+            b'x' => Ok(Letter::X),
+            b'y' => Ok(Letter::Y),
+            b'z' => Ok(Letter::Z),
+            _ => Err(()),
+        }
+    }
+}
 
 #[cfg(test)]
 mod test {
