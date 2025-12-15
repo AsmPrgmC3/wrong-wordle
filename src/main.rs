@@ -374,8 +374,10 @@ fn find_zero_solution(answer: Word, words: &[Word]) -> Option<ZeroState> {
 }
 
 fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution) -> SolutionYellow {
+    let state = YellowState::new(answer);
+
     // filter out any words with greens
-    let words: Vec<_> = words
+    let mut words: Vec<_> = words
         .iter()
         .copied()
         .filter(|&w| {
@@ -384,17 +386,23 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
                 .zip(answer.letters)
                 .all(|(a, b)| a != b)
         })
-        .enumerate()
-        .map(|(i, word)| (word, i as u32))
+        .map(|word| (word, state.eval_score(word)))
         .collect();
+
+    words.sort_by_key(|&(_, score)| score);
+
+    let words: Vec<_> = words.into_iter().rev().enumerate().map(|(i, (word, score))| (word, i as u32, score)).collect();
+
+    let word_scores: Vec<_> = words.iter().map(|&(_, _, score)| score).collect();
 
     let grey_words: Vec<Vec<_>> = words
         .iter()
         .copied()
-        .map(|(word, _)| {
+        .map(|(word, _, _)| {
             words
                 .iter()
                 .copied()
+                .map(|(other, word_idx, _)| (other, word_idx))
                 .filter(|&(other, _)| (word.mask & other.mask) == 0)
                 .collect()
         })
@@ -403,6 +411,7 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
     let initial_grey: Vec<_> = words
         .iter()
         .copied()
+        .map(|(word, word_idx, _)| (word, word_idx))
         .filter(|&(word, _)| (word.mask & answer.mask) == 0)
         .collect();
 
@@ -433,19 +442,15 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
                 continue;
             }
 
-            let word_min_score = partial.state.min_score(guess);
-            if (depth == 1 && word_min_score > 0)
-                || min_solution.score <= partial.score + word_min_score * (6 - depth)
+            let word_score = word_scores[word_idx as usize];
+
+            if (depth == 1 && word_score > 0)
+                || min_solution.score <= partial.score + word_score * (6 - depth)
             {
                 continue;
             }
 
             if !partial.state.valid_guess(guess) {
-                continue;
-            }
-
-            let word_score = partial.state.eval_score(guess);
-            if min_solution.score <= partial.score + word_score * (6 - depth) {
                 continue;
             }
 
@@ -473,9 +478,12 @@ fn find_min_yellow_solution(answer: Word, words: &[Word], better_than: Solution)
                 }
             }
 
-            let (child_list, child_whole_list) = if word_score == 0
+            let (child_list, child_whole_list) = if depth == 0 {
+                let new_list = grey_words[word_idx as usize].as_slice();
+                    (new_list, new_list)
+            } else if word_score == 0
                 && let new_list = grey_words[word_idx as usize].as_slice()
-                && (new_list.len() < partial.remaining_list.len() || depth == 0)
+                && new_list.len() < partial.remaining_list.len()
             {
                 (new_list, new_list)
             } else if new_score + (word_score + 1) * (5 - depth) >= min_solution.score {
@@ -815,9 +823,6 @@ impl YellowState {
         self.guesses.push(guess);
     }
 
-    fn min_score(&self, guess: Word) -> i32 {
-        (self.word.mask & guess.mask).count_ones() as _
-    }
     fn eval_score(&self, guess: Word) -> i32 {
         let mut answer_letters = self.word.letters;
 
